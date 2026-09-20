@@ -5,6 +5,13 @@ on:
     # Every 30 minutes. GitHub does not guarantee exact timing for
     # scheduled workflows (can be delayed a few minutes under load).
     - cron: "*/30 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "configs/**"
+      - "site2rss.py"
+      - "requirements.txt"
+      - ".github/workflows/update-feeds.yml"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
 permissions:

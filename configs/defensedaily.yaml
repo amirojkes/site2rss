@@ -14,5 +14,5 @@ selectors:
   link:
     selector: a.post-link
     attr: href
-output: output/defensedaily_com_www_defensedaily_com.xml
+output: output/defensedaily.xml
 limit: 10

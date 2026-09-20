@@ -43,6 +43,14 @@ def slugify(text):
     return slug or "feed"
 
 
+def default_slug(url):
+    """e.g. https://www.defensedaily.com/news/land -> defensedaily_news_land"""
+    m = re.match(r"https?://(?:www\.)?([^/]+)(/.*)?$", url)
+    host = m.group(1).rsplit(".", 1)[0] if m else "feed"
+    path = (m.group(2) or "") if m else ""
+    return slugify(f"{host} {path}")
+
+
 def publish(message, paths):
     """Commit the given paths and push; returns (ok, log)."""
     log = []
@@ -175,7 +183,7 @@ def page_add():
     d1, d2, d3, d4 = st.columns([3, 3, 1, 1])
     host = re.sub(r"^https?://(www\.)?", "", src_url).split("/")[0]
     v["title_text"] = d1.text_input("Feed title", value=host, key="f_feedtitle")
-    v["slug"] = slugify(d2.text_input("File name (slug)", value=slugify(host + "_" + src_url.rstrip("/").split("/")[-1]),
+    v["slug"] = slugify(d2.text_input("File name (slug)", value=default_slug(src_url),
                                       key="f_slug"))
     v["lang"] = d3.text_input("Language", "en", key="f_lang")
     v["limit"] = d4.number_input("Max items", 5, 200, 40, key="f_limit")
