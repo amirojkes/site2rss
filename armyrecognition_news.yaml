@@ -1,0 +1,40 @@
+# Example config: Army Recognition — Land Defense News
+# Based on the actual markup of https://www.armyrecognition.com/news/army-news
+# (Joomla site, no native RSS <link> tag in <head>)
+
+feed:
+  title: "Army Recognition - Land Defense News"
+  link: "https://www.armyrecognition.com/news/army-news"
+  description: "Unofficial feed generated from the Army Recognition news listing"
+  language: "en"
+
+source:
+  url: "https://www.armyrecognition.com/news/army-news"
+  base_url: "https://www.armyrecognition.com"
+  user_agent: "Mozilla/5.0 (compatible; site2rss/1.0)"
+
+selectors:
+  # Each news card on the listing page
+  item: ".el-item"
+
+  # Title + link both live inside the same <a> under .el-title
+  title:
+    selector: ".el-title a"
+  link:
+    selector: ".el-title a"
+    attr: "href"
+
+  # Publish date, taken from the <time datetime="..."> attribute
+  date:
+    selector: "time"
+    attr: "datetime"
+
+  # Optional: card thumbnail
+  image:
+    selector: "img"
+    attr: "src"
+
+  # No per-card summary text on this listing, so omit "description"
+
+output: "output/armyrecognition_news.xml"
+limit: 40
