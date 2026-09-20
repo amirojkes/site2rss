@@ -1,0 +1,10 @@
+{
+  "name": "site2rss UI",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "postCreateCommand": "pip install -r requirements-ui.txt",
+  "postAttachCommand": "nohup streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &",
+  "forwardPorts": [8501],
+  "portsAttributes": {
+    "8501": { "label": "site2rss UI", "onAutoForward": "openBrowser" }
+  }
+}

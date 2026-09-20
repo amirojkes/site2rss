@@ -78,6 +78,25 @@ links become absolute.
   will need updating — this is the same maintenance cost every
   scraper-based RSS generator (RSS-Bridge included) has.
 
+## Web UI for adding sites (GitHub Codespaces)
+
+You can add and manage feeds from a browser UI, with no local install:
+
+1. On the repo page click **Code → Codespaces → Create codespace on main**.
+2. The Streamlit UI starts automatically and opens in a browser tab
+   (or open the forwarded port 8501 from the *Ports* tab).
+3. **Add a site**: paste a listing-page URL and press *Analyze page*. The
+   tool detects repeated article blocks and guesses the title, link, date,
+   image and description selectors. Edit them, check the live preview, then
+   press *Save site*. This writes `configs/<name>.yaml`, commits and pushes,
+   and the *Update RSS feeds* workflow publishes the feed.
+4. **Existing feeds**: view, test, edit or delete the configured feeds.
+
+To run it locally instead: `pip install -r requirements-ui.txt && streamlit run ui/app.py`.
+
+If the analyzer finds no article blocks, the site most likely renders its
+list with JavaScript (see limitations below).
+
 ## Cron example
 
 Regenerate every configured feed every 30 minutes and serve `output/` with
