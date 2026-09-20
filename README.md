@@ -94,6 +94,19 @@ You can add and manage feeds from a browser UI, with no local install:
 
 To run it locally instead: `pip install -r requirements-ui.txt && streamlit run ui/app.py`.
 
+### Hosting the UI on Streamlit Community Cloud
+
+1. Create a **fine-grained personal access token** on GitHub
+   (Settings → Developer settings → Fine-grained tokens): only this
+   repository, permission **Contents: Read and write**.
+2. On <https://share.streamlit.io> choose *New app*: this repo, branch
+   `main`, main file `ui/app.py`, and under *Advanced settings → Secrets*
+   paste the values from `.streamlit/secrets.toml.example`.
+3. With `GITHUB_TOKEN` set, the app saves through the GitHub API instead
+   of git. `APP_PASSWORD` protects the page, which is otherwise public.
+
+The app sleeps after a period of inactivity and wakes when you open it.
+
 If the analyzer finds no article blocks, the site most likely renders its
 list with JavaScript (see limitations below).
 

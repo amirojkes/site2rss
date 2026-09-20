@@ -4,11 +4,14 @@ Run locally:  streamlit run ui/app.py
 In a Codespace it starts automatically (see .devcontainer/devcontainer.json).
 """
 
+import base64
+import hmac
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+import requests
 import streamlit as st
 import yaml
 
@@ -32,9 +35,14 @@ def git(*args):
 
 
 def pages_base():
-    """https://<owner>.github.io/<repo>/ derived from the git remote."""
-    out = git("remote", "get-url", "origin").stdout.strip()
-    m = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", out)
+    """https://<owner>.github.io/<repo>/ derived from the repo secret or git remote."""
+    src = secret("GITHUB_REPO") or ""
+    if not src:
+        try:
+            src = "github.com/" + git("remote", "get-url", "origin").stdout.strip().split("github.com")[-1].lstrip(":/")
+        except OSError:
+            return None
+    m = re.search(r"([^/:]+)/([^/.]+?)(?:\.git)?$", src)
     return f"https://{m.group(1)}.github.io/{m.group(2)}/" if m else None
 
 
@@ -110,6 +118,83 @@ def show_preview(cfg):
              "image": bool(i["image"])} for i in items]
     st.dataframe(rows, use_container_width=True, hide_index=True)
     return items
+
+
+# ---------- storage: local git checkout, or the GitHub API when deployed ----------
+
+def secret(name, default=None):
+    try:
+        return st.secrets.get(name, default)
+    except Exception:  # noqa: BLE001 - no secrets file locally
+        return default
+
+
+def cloud_mode():
+    return bool(secret("GITHUB_TOKEN"))
+
+
+def _gh(method, path, headers=None, **kw):
+    repo = secret("GITHUB_REPO") or "amirojkes/site2rss"
+    hdrs = {"Authorization": f"Bearer {secret('GITHUB_TOKEN')}",
+            "Accept": "application/vnd.github+json", **(headers or {})}
+    return requests.request(method, f"https://api.github.com/repos/{repo}/{path}",
+                            headers=hdrs, timeout=20, **kw)
+
+
+def list_configs():
+    """{filename: yaml text} for every config."""
+    if not cloud_mode():
+        return {p.name: p.read_text(encoding="utf-8") for p in sorted(CONFIGS.glob("*.yaml"))}
+    r = _gh("GET", "contents/configs")
+    r.raise_for_status()
+    out = {}
+    for f in r.json():
+        if f["name"].endswith(".yaml"):
+            raw = _gh("GET", f"contents/configs/{f['name']}", headers={"Accept": "application/vnd.github.raw"})
+            out[f["name"]] = raw.text
+    return out
+
+
+def save_config(name, text, message, push=True):
+    """Write configs/<name>; returns (ok, log)."""
+    if not cloud_mode():
+        CONFIGS.mkdir(exist_ok=True)
+        (CONFIGS / name).write_text(text, encoding="utf-8")
+        return publish(message, [f"configs/{name}"]) if push else (True, "Saved locally.")
+    path = f"contents/configs/{name}"
+    cur = _gh("GET", path)
+    body = {"message": message, "content": base64.b64encode(text.encode()).decode()}
+    if cur.status_code == 200:
+        body["sha"] = cur.json()["sha"]
+    r = _gh("PUT", path, json=body)
+    return r.ok, "Committed via GitHub API." if r.ok else r.text
+
+
+def delete_config(name, message):
+    if not cloud_mode():
+        (CONFIGS / name).unlink()
+        return publish(message, [f"configs/{name}"])
+    path = f"contents/configs/{name}"
+    cur = _gh("GET", path)
+    if cur.status_code != 200:
+        return False, cur.text
+    r = _gh("DELETE", path, json={"message": message, "sha": cur.json()["sha"]})
+    return r.ok, "Deleted via GitHub API." if r.ok else r.text
+
+
+def require_password():
+    """Gate the app when APP_PASSWORD is configured (needed once it's public)."""
+    pw = secret("APP_PASSWORD")
+    if not pw or st.session_state.get("authed"):
+        return
+    st.title("📡 site2rss")
+    entered = st.text_input("Password", type="password")
+    if entered and hmac.compare_digest(entered, str(pw)):
+        st.session_state.authed = True
+        st.rerun()
+    elif entered:
+        st.error("Wrong password.")
+    st.stop()
 
 
 # ---------- pages ----------
@@ -199,16 +284,17 @@ def page_add():
     with st.expander("Generated YAML"):
         st.code(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), language="yaml")
 
-    path = CONFIGS / f"{v['slug']}.yaml"
-    if path.exists():
-        st.warning(f"configs/{path.name} already exists and will be overwritten.")
-    push = st.checkbox("Commit and push (publishes the feed via GitHub Actions)", value=True)
+    name = f"{v['slug']}.yaml"
+    if name in list_configs():
+        st.warning(f"configs/{name} already exists and will be overwritten.")
+    push = True if cloud_mode() else st.checkbox(
+        "Commit and push (publishes the feed via GitHub Actions)", value=True)
     if st.button("Save site", type="primary", disabled=not items):
-        CONFIGS.mkdir(exist_ok=True)
-        path.write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        st.success(f"Saved configs/{path.name}")
-        if push:
-            ok, log = publish(f"Add feed: {v['slug']}", [f"configs/{path.name}"])
+        ok, log = save_config(name, yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
+                              f"Add feed: {v['slug']}", push)
+        if not push:
+            st.success(f"Saved configs/{name} (not pushed)")
+        else:
             (st.success if ok else st.error)("Pushed. The workflow will publish it shortly." if ok else "Push failed.")
             st.code(log)
             base_url = pages_base()
@@ -218,42 +304,42 @@ def page_add():
 
 def page_manage():
     st.header("Existing feeds")
-    files = sorted(CONFIGS.glob("*.yaml"))
+    files = list_configs()
     if not files:
         st.info("No feeds configured yet.")
         return
     base_url = pages_base()
-    for p in files:
-        cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
-        out_name = Path(cfg.get("output", f"{p.stem}.xml")).name
-        with st.expander(f"{cfg['feed']['title']}  ({p.name})"):
+    for fname, original in files.items():
+        stem = fname[:-5]
+        cfg = yaml.safe_load(original)
+        out_name = Path(cfg.get("output", f"{stem}.xml")).name
+        with st.expander(f"{cfg['feed']['title']}  ({fname})"):
             st.write(f"Source: {cfg['source']['url']}")
             if base_url:
                 st.write(f"Feed: {base_url}{out_name}")
-            text = st.text_area("YAML", p.read_text(encoding="utf-8"), height=320, key="y_" + p.name)
+            text = st.text_area("YAML", original, height=320, key="y_" + fname)
             c1, c2, c3 = st.columns(3)
-            if c1.button("Test now", key="t_" + p.name):
+            if c1.button("Test now", key="t_" + fname):
                 try:
                     show_preview(yaml.safe_load(text))
                 except Exception as exc:  # noqa: BLE001
                     st.error(str(exc))
-            if c2.button("Save and push", key="s_" + p.name):
+            if c2.button("Save and push", key="s_" + fname):
                 try:
                     yaml.safe_load(text)  # validate that it parses
                 except yaml.YAMLError as exc:
                     st.error(f"Invalid YAML: {exc}")
                 else:
-                    p.write_text(text, encoding="utf-8")
-                    ok, log = publish(f"Update feed: {p.stem}", [f"configs/{p.name}"])
+                    ok, log = save_config(fname, text, f"Update feed: {stem}")
                     (st.success if ok else st.error)("Saved and pushed." if ok else "Push failed.")
                     st.code(log)
-            if c3.button("Delete", key="d_" + p.name):
-                p.unlink()
-                ok, log = publish(f"Remove feed: {p.stem}", [f"configs/{p.name}"])
+            if c3.button("Delete", key="d_" + fname):
+                ok, log = delete_config(fname, f"Remove feed: {stem}")
                 (st.success if ok else st.error)("Deleted and pushed." if ok else "Push failed.")
                 st.code(log)
 
 
+require_password()
 st.title("📡 site2rss")
 page = st.sidebar.radio("Menu", ["Add a site", "Existing feeds"])
 (page_add if page == "Add a site" else page_manage)()
