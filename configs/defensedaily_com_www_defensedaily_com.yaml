@@ -1,0 +1,18 @@
+feed:
+  title: defensedaily.com
+  link: https://www.defensedaily.com/
+  description: Unofficial feed for https://www.defensedaily.com/
+  language: en
+source:
+  url: https://www.defensedaily.com/
+  base_url: https://www.defensedaily.com
+  user_agent: Mozilla/5.0 (compatible; site2rss/1.0)
+selectors:
+  item: div.position-relative
+  title:
+    selector: a.post-link
+  link:
+    selector: a.post-link
+    attr: href
+output: output/defensedaily_com_www_defensedaily_com.xml
+limit: 10
